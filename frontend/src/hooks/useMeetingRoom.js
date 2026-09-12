@@ -48,12 +48,20 @@ export function useMeetingRoom(code, token, userName) {
   const [connectionError, setConnectionError] = useState(null);
   const [mediaWarning, setMediaWarning] = useState(null);
 
+  // Zoom-style Interactive Features
+  const [reactions, setReactions] = useState([]);
+  const [raisedHands, setRaisedHands] = useState({});
+  const [handRaised, setHandRaised] = useState(false);
+  const [facingMode, setFacingMode] = useState("user");
+  const [reconnecting, setReconnecting] = useState(false);
+
   const pcMap = useRef({});
   const iceCandidatesQueue = useRef({});
   const ws = useRef(null);
   const localStreamRef = useRef(null);
   const screenTrackRef = useRef(null);
   const screenSharingRef = useRef(false);
+  const meetingEndedRef = useRef(false);
 
   const sendSignal = useCallback((data) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -207,7 +215,30 @@ export function useMeetingRoom(code, token, userName) {
         ]);
         break;
       }
+      case "reaction": {
+        if (payload?.emoji) {
+          const id = Math.random().toString(36).substring(2, 9);
+          setReactions((prev) => [
+            ...prev,
+            { id, emoji: payload.emoji, name: payload.name || "Participant" },
+          ]);
+          setTimeout(() => {
+            setReactions((prev) => prev.filter((r) => r.id !== id));
+          }, 4000);
+        }
+        break;
+      }
+      case "raise-hand": {
+        if (senderId) {
+          setRaisedHands((prev) => ({
+            ...prev,
+            [senderId]: payload?.raised ?? true,
+          }));
+        }
+        break;
+      }
       case "meeting-ended": {
+        meetingEndedRef.current = true;
         setMeetingEnded(true);
         break;
       }
@@ -225,6 +256,11 @@ export function useMeetingRoom(code, token, userName) {
           return next;
         });
         setRemoteMediaStates((prev) => {
+          const next = { ...prev };
+          delete next[senderId];
+          return next;
+        });
+        setRaisedHands((prev) => {
           const next = { ...prev };
           delete next[senderId];
           return next;
@@ -456,6 +492,50 @@ export function useMeetingRoom(code, token, userName) {
     iceCandidatesQueue.current = {};
   }, []);
 
+  const sendReaction = useCallback((emoji) => {
+    sendSignal({ type: "reaction", payload: { emoji, name: userName || "You" } });
+    const id = Math.random().toString(36).substring(2, 9);
+    setReactions((prev) => [...prev, { id, emoji, name: userName || "You" }]);
+    setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 4000);
+  }, [userName, sendSignal]);
+
+  const toggleRaiseHand = useCallback(() => {
+    setHandRaised((prev) => {
+      const next = !prev;
+      sendSignal({ type: "raise-hand", payload: { raised: next, name: userName || "You" } });
+      return next;
+    });
+  }, [userName, sendSignal]);
+
+  const flipCamera = useCallback(async () => {
+    const nextMode = facingMode === "user" ? "environment" : "user";
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { ...VIDEO_CONSTRAINTS, facingMode: nextMode },
+        audio: false,
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (localStreamRef.current) {
+        const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldVideoTrack) {
+          oldVideoTrack.stop();
+          localStreamRef.current.removeTrack(oldVideoTrack);
+        }
+        localStreamRef.current.addTrack(newVideoTrack);
+      }
+      Object.values(pcMap.current).forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+        if (sender) sender.replaceTrack(newVideoTrack).catch(() => {});
+      });
+      setFacingMode(nextMode);
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+    } catch (e) {
+      console.warn("Could not flip camera:", e);
+    }
+  }, [facingMode]);
+
   return {
     localStream,
     remoteStreams,
@@ -468,10 +548,18 @@ export function useMeetingRoom(code, token, userName) {
     meetingEnded,
     connectionError,
     mediaWarning,
+    reactions,
+    raisedHands,
+    handRaised,
+    reconnecting,
+    facingMode,
     toggleMic,
     toggleCam,
     toggleScreenShare,
     sendChat,
+    sendReaction,
+    toggleRaiseHand,
+    flipCamera,
     leaveMeeting,
   };
 }

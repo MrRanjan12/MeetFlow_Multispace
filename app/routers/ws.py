@@ -86,6 +86,30 @@ async def meeting_signaling(
                         "payload": {"name": user_name, "text": payload.get("text", "")},
                     },
                 )
+            elif msg_type == "reaction":
+                await manager.broadcast(
+                    meeting_code,
+                    {
+                        "type": "reaction",
+                        "from": user_id,
+                        "payload": {
+                            "name": user_name,
+                            "emoji": payload.get("emoji", "👍") if payload else "👍",
+                        },
+                    },
+                )
+            elif msg_type == "raise-hand":
+                await manager.broadcast(
+                    meeting_code,
+                    {
+                        "type": "raise-hand",
+                        "from": user_id,
+                        "payload": {
+                            "name": user_name,
+                            "raised": payload.get("raised", True) if payload else True,
+                        },
+                    },
+                )
             elif msg_type == "leave":
                 break
             # Unknown message types are silently ignored rather than crashing the socket

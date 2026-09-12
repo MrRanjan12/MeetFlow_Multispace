@@ -7,6 +7,9 @@ export default function VideoTile({
   isMicMuted = false,
   videoOff = false,
   isSpeaking = false,
+  isHandRaised = false,
+  isPinned = false,
+  onPin,
 }) {
   const videoRef = useRef(null);
 
@@ -25,8 +28,12 @@ export default function VideoTile({
 
   return (
     <div
-      className={`relative w-full aspect-video bg-neutral-900/90 rounded-2xl overflow-hidden shadow-2xl border transition-all duration-300 flex items-center justify-center group ${
-        isSpeaking ? "border-emerald-500 ring-2 ring-emerald-500/30" : "border-neutral-800/80 hover:border-neutral-700"
+      className={`relative w-full h-full min-h-[160px] aspect-video bg-neutral-900/95 rounded-2xl overflow-hidden shadow-xl border transition-all duration-300 flex items-center justify-center group select-none ${
+        isSpeaking
+          ? "border-emerald-500 ring-2 ring-emerald-500/40 shadow-emerald-950/40"
+          : isPinned
+          ? "border-indigo-500 ring-1 ring-indigo-500/30"
+          : "border-neutral-800/80 hover:border-neutral-700"
       }`}
     >
       {/* Video Element */}
@@ -43,22 +50,64 @@ export default function VideoTile({
       {/* Avatar Fallback when Camera is Off */}
       {videoOff && (
         <div className="flex flex-col items-center justify-center gap-3">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-semibold text-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white font-semibold text-xl sm:text-2xl flex items-center justify-center shadow-lg shadow-indigo-600/30 border border-white/10">
             {initials}
           </div>
-          <span className="text-xs font-medium text-neutral-400">{name}</span>
+          <span className="text-xs font-medium text-neutral-300 truncate max-w-[120px] sm:max-w-[160px]">
+            {name}
+          </span>
         </div>
       )}
 
-      {/* Modern Frosted Name Badge */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-xs font-medium text-white/90 shadow-md">
-        {(muted || isMicMuted) && (
-          <svg className="w-3.5 h-3.5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-          </svg>
+      {/* Top Right Badges: Hand Raise & Pin button */}
+      <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+        {isHandRaised && (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/90 text-white text-[11px] font-bold shadow-lg animate-bounce">
+            <span>✋</span>
+            <span className="hidden sm:inline text-[10px]">Hand Raised</span>
+          </div>
         )}
-        <span className="truncate max-w-[140px]">{name}</span>
+
+        {onPin && (
+          <button
+            onClick={onPin}
+            className={`p-1.5 rounded-lg backdrop-blur-md border transition cursor-pointer opacity-0 group-hover:opacity-100 ${
+              isPinned
+                ? "bg-indigo-600/80 border-indigo-400/40 text-white opacity-100"
+                : "bg-black/50 border-white/10 text-neutral-400 hover:text-white"
+            }`}
+            title={isPinned ? "Unpin video" : "Pin video"}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+            </svg>
+          </button>
+        )}
+
+        {/* Network Quality Indicator (3 bars) */}
+        <div className="flex items-end gap-0.5 px-1.5 py-1 rounded bg-black/40 backdrop-blur-sm border border-white/5" title="Connection Quality: Good">
+          <div className="w-0.5 h-1.5 bg-emerald-400 rounded-full"></div>
+          <div className="w-0.5 h-2 bg-emerald-400 rounded-full"></div>
+          <div className="w-0.5 h-2.5 bg-emerald-400 rounded-full"></div>
+        </div>
+      </div>
+
+      {/* Bottom Left: Name Badge with Audio Status */}
+      <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 bg-black/65 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[11px] sm:text-xs font-medium text-white shadow-md max-w-[85%] z-10">
+        {(muted || isMicMuted) ? (
+          <div className="w-3.5 h-3.5 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z M3 3l18 18" />
+            </svg>
+          </div>
+        ) : (
+          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 ${isSpeaking ? "bg-emerald-500/20 text-emerald-400" : "text-neutral-400"}`}>
+            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </div>
+        )}
+        <span className="truncate">{name}</span>
       </div>
     </div>
   );

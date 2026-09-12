@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -15,14 +15,48 @@ export default function Meeting() {
   const [meetingInfo, setMeetingInfo] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [panel, setPanel] = useState(null); // null | "chat" | "participants"
+  const [viewMode, setViewMode] = useState("gallery"); // "gallery" | "speaker"
+  const [pinnedId, setPinnedId] = useState(null); // null | "local" | participant_id
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [dismissWarning, setDismissWarning] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Guest join state
   const [guestName, setGuestName] = useState("");
   const [joiningGuest, setJoiningGuest] = useState(false);
   const [guestError, setGuestError] = useState("");
+
+  // Accidental Tab Exit Prevention Clause
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "Are you sure you want to leave the meeting?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  // Call duration counter
+  useEffect(() => {
+    if (!meetingInfo) return;
+    const timer = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [meetingInfo]);
+
+  const formatDuration = (totalSec) => {
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    if (hrs > 0) {
+      return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    }
+    return `${pad(mins)}:${pad(secs)}`;
+  };
 
   const handleGuestSubmit = async (e) => {
     e.preventDefault();
@@ -39,7 +73,7 @@ export default function Meeting() {
 
   useEffect(() => {
     if (!code || code === "undefined") return;
-    if (!token) return; // Wait until authenticated (registered or guest)
+    if (!token) return;
 
     let isMounted = true;
     api
@@ -68,12 +102,28 @@ export default function Meeting() {
     meetingEnded,
     connectionError,
     mediaWarning,
+    reactions,
+    raisedHands,
+    handRaised,
+    reconnecting,
     toggleCam,
     toggleMic,
     toggleScreenShare,
     sendChat,
+    sendReaction,
+    toggleRaiseHand,
+    flipCamera,
     leaveMeeting,
   } = useMeetingRoom(meetingInfo ? code : null, token, user?.name);
+
+  // Screen Share Clause: Mobile devices don't support getDisplayMedia
+  const handleToggleScreenShare = () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      alert("Screen sharing is not supported on this mobile browser. Please join from a desktop computer to share your screen.");
+      return;
+    }
+    toggleScreenShare();
+  };
 
   useEffect(() => {
     if (meetingEnded) {
@@ -122,7 +172,7 @@ export default function Meeting() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // 1. If not authenticated, show Guest Join Screen
+  // 1. If not authenticated, show Zoom-style Guest Join Screen
   if (!token || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-neutral-100 p-4 font-sans antialiased">
@@ -246,34 +296,98 @@ export default function Meeting() {
 
   const isHost = meetingInfo.host_id === user?.id;
   const remoteParticipants = (participants || []).filter((p) => p.user_id !== user?.id);
+  const allParticipants = (participants || []).some((p) => p.user_id === user?.id)
+    ? participants
+    : [{ user_id: user?.id, name: user?.name || "You" }, ...(participants || [])];
+
   const tileCount = remoteParticipants.length + 1;
-  const gridLayout =
+
+  // Dynamic responsive grid layout for Gallery View
+  const galleryGridClass =
     tileCount === 1
       ? "grid-cols-1 max-w-4xl"
       : tileCount === 2
       ? "grid-cols-1 md:grid-cols-2 max-w-5xl"
       : tileCount <= 4
-      ? "grid-cols-2 max-w-6xl"
-      : "grid-cols-3 max-w-7xl";
+      ? "grid-cols-1 sm:grid-cols-2 max-w-5xl"
+      : tileCount <= 6
+      ? "grid-cols-2 lg:grid-cols-3 max-w-6xl"
+      : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 max-w-7xl";
 
-  const allParticipants = (participants || []).some((p) => p.user_id === user?.id)
-    ? participants
-    : [{ user_id: user?.id, name: user?.name || "You" }, ...(participants || [])];
+  // Speaker View Calculations
+  let speakerParticipant = null;
+  if (pinnedId === "local") {
+    speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
+  } else if (pinnedId) {
+    const found = remoteParticipants.find((p) => p.user_id === pinnedId);
+    if (found) speakerParticipant = { isLocal: false, ...found };
+  }
+  if (!speakerParticipant) {
+    if (remoteParticipants.length > 0) {
+      speakerParticipant = { isLocal: false, ...remoteParticipants[0] };
+    } else {
+      speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
+    }
+  }
+
+  const renderTileFor = (p, isPinnedTile = false) => {
+    if (p.isLocal || p.user_id === "local" || p.user_id === user?.id) {
+      return (
+        <VideoTile
+          key="local"
+          stream={localStream}
+          name={`${user?.name || "You"} (You)`}
+          muted={true}
+          isMicMuted={!micOn}
+          videoOff={!camOn}
+          isHandRaised={handRaised}
+          isPinned={pinnedId === "local"}
+          onPin={() => setPinnedId(pinnedId === "local" ? null : "local")}
+        />
+      );
+    }
+    const stream = remoteStreams[p.user_id];
+    const isCamOff = !stream || remoteMediaStates[p.user_id]?.camOn === false;
+    const isMicOff = remoteMediaStates[p.user_id]?.micOn === false;
+    const hasHandRaised = !!raisedHands[p.user_id];
+    return (
+      <VideoTile
+        key={p.user_id}
+        stream={stream}
+        name={p.name || "Participant"}
+        videoOff={isCamOff}
+        isMicMuted={isMicOff}
+        isHandRaised={hasHandRaised}
+        isPinned={pinnedId === p.user_id}
+        onPin={() => setPinnedId(pinnedId === p.user_id ? null : p.user_id)}
+      />
+    );
+  };
 
   return (
-    <div className="flex h-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans antialiased">
-      {/* Main Call Area */}
-      <div className="flex flex-1 flex-col h-full relative">
-        {/* Top Header */}
-        <header className="flex items-center justify-between px-6 py-3.5 bg-neutral-900/60 backdrop-blur-md border-b border-white/5 z-10">
-          <div className="flex items-center gap-3">
-            <h1 className="text-sm font-semibold tracking-tight text-white">{meetingInfo.title}</h1>
-            <div className="h-4 w-px bg-neutral-800"></div>
+    <div className="flex h-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans antialiased select-none">
+      {/* Main Call Stage */}
+      <div className="flex flex-1 flex-col h-full relative overflow-hidden">
+        {/* Top Header - Zoom Style */}
+        <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-neutral-900/80 backdrop-blur-xl border-b border-white/5 z-20">
+          <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
+            {/* Green Encryption Shield */}
+            <div className="flex items-center gap-1 text-emerald-400" title="End-to-End Encrypted Session">
+              <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 1.944A11.954 11.954 0 012.166 5C2.056 5.649 2 6.319 2 7c0 5.225 3.34 9.67 8 11.317C14.66 16.67 18 12.225 18 7c0-.682-.057-1.35-.166-2.001A11.954 11.954 0 0110 1.944zM11 14a1 1 0 11-2 0 1 1 0 012 0zm0-7a1 1 0 10-2 0v3a1 1 0 102 0V7z" clipRule="evenodd" />
+              </svg>
+            </div>
+
+            <h1 className="text-xs sm:text-sm font-semibold tracking-tight text-white truncate max-w-[110px] sm:max-w-xs">
+              {meetingInfo.title}
+            </h1>
+
+            <div className="h-3.5 w-px bg-neutral-800 hidden xs:block"></div>
 
             {/* Room Code Badge */}
             <button
               onClick={copyMeetingCode}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 text-xs font-mono transition cursor-pointer border border-neutral-700/50"
+              className="flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 text-[11px] sm:text-xs font-mono transition cursor-pointer border border-neutral-700/50 flex-shrink-0"
               title="Click to copy room code"
             >
               <span>{code}</span>
@@ -281,12 +395,12 @@ export default function Meeting() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </button>
-            {copied && <span className="text-[11px] text-emerald-400 font-medium">Code Copied!</span>}
+            {copied && <span className="text-[10px] text-emerald-400 font-medium hidden sm:inline">Copied!</span>}
 
             {/* Invite Link Button */}
             <button
               onClick={copyInviteLink}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium transition cursor-pointer border border-indigo-500/30"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium transition cursor-pointer border border-indigo-500/30 flex-shrink-0"
               title="Copy meeting link to share"
             >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -294,67 +408,139 @@ export default function Meeting() {
               </svg>
               <span>Share Link</span>
             </button>
-            {copiedLink && <span className="text-[11px] text-indigo-400 font-medium">Link Copied!</span>}
+            {copiedLink && <span className="text-[10px] text-indigo-400 font-medium hidden sm:inline">Link Copied!</span>}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Live Call
-            </span>
-            {isHost && (
-              <span className="px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[11px] font-medium">
-                Host
-              </span>
-            )}
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            {/* Live Elapsed Meeting Timer */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800/60 border border-neutral-700/50 text-[11px] sm:text-xs font-mono text-neutral-300">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+              <span>{formatDuration(elapsedSeconds)}</span>
+            </div>
+
+            {/* View Mode Switcher (Speaker vs Gallery) */}
+            <div className="flex items-center bg-neutral-800/80 p-0.5 rounded-lg border border-neutral-700/50">
+              <button
+                onClick={() => setViewMode("gallery")}
+                className={`p-1.5 rounded-md transition cursor-pointer ${
+                  viewMode === "gallery" ? "bg-neutral-700 text-white shadow-sm" : "text-neutral-400 hover:text-white"
+                }`}
+                title="Gallery View"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode("speaker")}
+                className={`p-1.5 rounded-md transition cursor-pointer ${
+                  viewMode === "speaker" ? "bg-neutral-700 text-white shadow-sm" : "text-neutral-400 hover:text-white"
+                }`}
+                title="Speaker View"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Mobile Camera Flip Button */}
+            <button
+              onClick={flipCamera}
+              className="p-1.5 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 border border-neutral-700/50 transition cursor-pointer sm:hidden"
+              title="Flip Camera (Front/Back)"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
           </div>
         </header>
 
-        {/* Media Fallback Warning Toast */}
+        {/* Reconnecting Network Banner */}
+        {reconnecting && (
+          <div className="bg-amber-500/20 border-b border-amber-500/40 px-4 py-1.5 flex items-center justify-center gap-2 text-xs text-amber-300 animate-pulse z-10">
+            <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
+            <span>Re-establishing server connection… Audio & video remain active.</span>
+          </div>
+        )}
+
+        {/* Media Warning Toast */}
         {mediaWarning && !dismissWarning && (
-          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-300">
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-300 z-10">
             <span>{mediaWarning}</span>
             <button
               onClick={() => setDismissWarning(true)}
-              className="text-amber-400 hover:text-white ml-3 font-bold"
+              className="text-amber-400 hover:text-white ml-3 font-bold cursor-pointer"
             >
               ✕
             </button>
           </div>
         )}
 
-        {/* Video Grid Canvas */}
-        <main className="flex-1 overflow-y-auto p-6 pb-28 flex items-center justify-center">
-          <div className={`grid ${gridLayout} w-full gap-4 items-center justify-center`}>
-            {/* Local Tile */}
-            <VideoTile
-              stream={localStream}
-              name={`${user?.name || "You"} (You)`}
-              muted={true}
-              isMicMuted={!micOn}
-              videoOff={!camOn}
-            />
+        {/* Video Canvas Stage */}
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-28 sm:pb-32 flex flex-col items-center justify-center relative">
+          {viewMode === "gallery" ? (
+            /* Gallery Mode: Balanced Multi-tile Grid */
+            <div className={`grid ${galleryGridClass} w-full gap-3 sm:gap-4 items-center justify-center my-auto`}>
+              {/* Local Tile */}
+              {renderTileFor({ isLocal: true, user_id: "local" })}
 
-            {/* Remote Participants */}
-            {remoteParticipants.map((p) => {
-              const stream = remoteStreams[p.user_id];
-              const isCamOff = !stream || remoteMediaStates[p.user_id]?.camOn === false;
-              const isMicOff = remoteMediaStates[p.user_id]?.micOn === false;
-              return (
-                <VideoTile
-                  key={p.user_id}
-                  stream={stream}
-                  name={p.name || "Participant"}
-                  videoOff={isCamOff}
-                  isMicMuted={isMicOff}
-                />
-              );
-            })}
-          </div>
+              {/* Remote Participants */}
+              {remoteParticipants.map((p) => renderTileFor(p))}
+            </div>
+          ) : (
+            /* Speaker Mode: Main Spotlight Stage + Filmstrip */
+            <div className="flex flex-col w-full h-full max-w-6xl gap-3 justify-center items-center">
+              {/* Main Focused Stage */}
+              <div className="flex-1 w-full max-h-[75vh] flex items-center justify-center">
+                {renderTileFor(speakerParticipant, true)}
+              </div>
+
+              {/* Thumbnail Filmstrip */}
+              <div className="flex items-center gap-2.5 overflow-x-auto max-w-full py-1 px-2 no-scrollbar">
+                {/* Local in Filmstrip if not active speaker */}
+                {speakerParticipant.user_id !== "local" && (
+                  <div
+                    onClick={() => setPinnedId("local")}
+                    className="w-28 sm:w-40 aspect-video flex-shrink-0 cursor-pointer rounded-xl overflow-hidden border border-neutral-700 hover:border-indigo-500 transition"
+                  >
+                    {renderTileFor({ isLocal: true, user_id: "local" })}
+                  </div>
+                )}
+
+                {/* Remotes in Filmstrip */}
+                {remoteParticipants
+                  .filter((p) => p.user_id !== speakerParticipant.user_id)
+                  .map((p) => (
+                    <div
+                      key={p.user_id}
+                      onClick={() => setPinnedId(p.user_id)}
+                      className="w-28 sm:w-40 aspect-video flex-shrink-0 cursor-pointer rounded-xl overflow-hidden border border-neutral-700 hover:border-indigo-500 transition"
+                    >
+                      {renderTileFor(p)}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
         </main>
 
-        {/* Floating Zoom-style Pill Control Bar */}
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center z-20">
+        {/* Floating Reaction Emojis Overlay */}
+        <div className="pointer-events-none fixed bottom-24 left-4 sm:left-8 z-30 flex flex-col gap-2">
+          {reactions.map((r) => (
+            <div
+              key={r.id}
+              className="animate-float-up flex items-center gap-2 bg-neutral-900/90 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-2xl"
+            >
+              <span className="text-xl sm:text-2xl">{r.emoji}</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-neutral-200">{r.name}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Zoom-Style Floating Bottom Control Bar */}
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 sm:bottom-6 flex justify-center z-30 px-2">
           <div className="pointer-events-auto">
             <ControlBar
               micOn={micOn}
@@ -363,11 +549,14 @@ export default function Meeting() {
               isHost={isHost}
               participantCount={allParticipants.length}
               unreadCount={panel === "chat" ? 0 : chatMessages?.length || 0}
+              handRaised={handRaised}
               onToggleMic={toggleMic}
               onToggleCam={toggleCam}
-              onToggleScreenShare={toggleScreenShare}
+              onToggleScreenShare={handleToggleScreenShare}
               onToggleChat={() => setPanel(panel === "chat" ? null : "chat")}
               onToggleParticipants={() => setPanel(panel === "participants" ? null : "participants")}
+              onSendReaction={sendReaction}
+              onToggleRaiseHand={toggleRaiseHand}
               onLeave={handleLeave}
               onEndMeeting={handleEndMeeting}
             />
@@ -375,18 +564,27 @@ export default function Meeting() {
         </div>
       </div>
 
-      {/* Modern Slide-in Side Drawer */}
+      {/* Side Panel: Responsive Slide-up Drawer on Mobile, Sleek Sidebar on Desktop */}
       {panel && (
-        <aside className="w-80 h-full z-30 transition-all duration-300">
-          <SidePanel
-            panel={panel}
-            participants={allParticipants}
-            chatMessages={chatMessages || []}
-            selfId={user?.id}
-            onSendChat={sendChat}
-            onClose={() => setPanel(null)}
+        <>
+          {/* Mobile Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 sm:hidden"
+            onClick={() => setPanel(null)}
           />
-        </aside>
+
+          <aside className="fixed inset-x-0 bottom-0 top-16 sm:static sm:w-80 sm:h-full z-50 transition-all duration-300 shadow-2xl">
+            <SidePanel
+              panel={panel}
+              participants={allParticipants}
+              chatMessages={chatMessages || []}
+              selfId={user?.id}
+              onSendChat={sendChat}
+              onSwitchPanel={(newPanel) => setPanel(newPanel)}
+              onClose={() => setPanel(null)}
+            />
+          </aside>
+        </>
       )}
     </div>
   );
