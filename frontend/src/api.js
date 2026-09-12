@@ -1,25 +1,53 @@
-const getApiUrl = () => {
+export const getApiUrl = () => {
+  if (typeof window !== "undefined") {
+    // 1. Check URL query param: ?api_url=https://my-backend.onrender.com
+    const params = new URLSearchParams(window.location.search);
+    const queryApi = params.get("api_url");
+    if (queryApi && queryApi.trim()) {
+      const clean = queryApi.trim().replace(/\/+$/, "");
+      localStorage.setItem("custom_api_url", clean);
+      return clean;
+    }
+
+    // 2. Check saved custom API URL in localStorage
+    const saved = localStorage.getItem("custom_api_url");
+    if (saved && saved.trim()) {
+      return saved.trim().replace(/\/+$/, "");
+    }
+
+    const hostname = window.location.hostname;
+    // 3. Localhost development
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `http://${hostname}:8000`;
+    }
+
+    // 4. Render auto-derivation:
+    // If frontend is meeting-app-frontend-xxxx.onrender.com, derive meeting-app-backend-xxxx.onrender.com
+    if (hostname.includes(".onrender.com")) {
+      const derived = hostname.replace(/-frontend(\.onrender\.com)/, "-backend$1");
+      if (derived !== hostname) {
+        return `https://${derived}`;
+      }
+    }
+  }
+
+  // 5. Environment variable
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
     return envUrl.trim().replace(/\/+$/, "");
   }
-  if (typeof window !== "undefined" && window.location) {
-    const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return `http://${hostname}:8000`;
-    }
-    // Smart fallback if hosted on Render
-    if (hostname.includes(".onrender.com")) {
-      const backendHost = hostname.replace(/-frontend(\.onrender\.com)/, "-backend$1");
-      return `https://${backendHost}`;
-    }
-    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-    return `${protocol}//${hostname}:8000`;
-  }
+
   return "http://localhost:8000";
 };
 
 export const API_URL = getApiUrl();
+
+export const setApiUrl = (url) => {
+  if (typeof window !== "undefined" && url && url.trim()) {
+    localStorage.setItem("custom_api_url", url.trim().replace(/\/+$/, ""));
+    window.location.reload();
+  }
+};
 
 async function request(endpoint, options = {}) {
   const token = localStorage.getItem("token");
@@ -29,16 +57,25 @@ async function request(endpoint, options = {}) {
     ...options.headers,
   };
 
-  const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const data = await res.json();
-      detail = data.detail || detail;
-    } catch {}
-    throw new Error(detail);
+  try {
+    const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const data = await res.json();
+        detail = data.detail || detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  } catch (err) {
+    if (err.message === "Failed to fetch" || err.name === "TypeError") {
+      throw new Error(
+        `Unable to reach backend at ${API_URL}. If your backend URL is different, please verify it in Render or configure it below.`
+      );
+    }
+    throw err;
   }
-  return res.json();
 }
 
 export const api = {

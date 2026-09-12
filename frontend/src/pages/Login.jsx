@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { API_URL, setApiUrl } from "../api.js";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -12,6 +13,10 @@ export default function Login() {
   const [mode, setMode] = useState("login"); // "login" | "guest"
   const [guestName, setGuestName] = useState("");
   const [guestCode, setGuestCode] = useState("");
+
+  // Backend URL config toggle
+  const [showConfig, setShowConfig] = useState(false);
+  const [serverInput, setServerInput] = useState(API_URL);
 
   const { login, joinAsGuest } = useAuth();
   const navigate = useNavigate();
@@ -104,8 +109,17 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="p-3 mb-4 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl">
-            {error}
+          <div className="p-3 mb-4 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl space-y-2">
+            <p>{error}</p>
+            {error.includes("Unable to reach backend") && (
+              <button
+                type="button"
+                onClick={() => setShowConfig(true)}
+                className="text-xs font-semibold underline text-red-800 hover:text-red-900 cursor-pointer block"
+              >
+                Configure Backend URL →
+              </button>
+            )}
           </div>
         )}
 
@@ -193,6 +207,40 @@ export default function Login() {
             </Link>
           </p>
         )}
+
+        {/* Backend Connectivity Helper */}
+        <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+          <button
+            type="button"
+            onClick={() => setShowConfig(!showConfig)}
+            className="text-[11px] text-slate-400 hover:text-slate-600 transition inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>API: <code className="text-slate-600 font-mono">{API_URL}</code></span>
+            <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">change</span>
+          </button>
+
+          {showConfig && (
+            <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-left space-y-2 text-xs">
+              <label className="block text-slate-600 font-medium">Backend Render URL:</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={serverInput}
+                  onChange={(e) => setServerInput(e.target.value)}
+                  placeholder="https://your-backend.onrender.com"
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono bg-white focus:outline-indigo-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => setApiUrl(serverInput)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
