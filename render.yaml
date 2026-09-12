@@ -2,7 +2,7 @@ services:
   # Backend FastAPI Service (Web Service)
   - type: web
     name: meeting-app-backend
-    env: python
+    runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -19,8 +19,7 @@ services:
   # Frontend React Vite App (Static Site)
   - type: web
     name: meeting-app-frontend
-    env: static
-    plan: free
+    runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: ./frontend/dist
     routes:
@@ -29,10 +28,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: meeting-app-backend
-          property: host
+        value: https://meeting-app-backend.onrender.com
 
 databases:
   # Managed PostgreSQL for persistent meetings & users
