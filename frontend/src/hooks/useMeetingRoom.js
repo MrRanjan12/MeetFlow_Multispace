@@ -277,21 +277,31 @@ export function useMeetingRoom(code, token, userName) {
     if (screenTrackRef.current) {
       try {
         screenTrackRef.current.stop();
-      } catch {}
+      } catch (e) {
+        console.warn("Failed to stop screen track:", e);
+      }
       screenTrackRef.current = null;
     }
-    const videoTrack = localStreamRef.current
-      ? localStreamRef.current.getVideoTracks()[0]
-      : null;
-    Object.values(pcMap.current).forEach((pc) => {
-      const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
-      if (sender && videoTrack) {
-        sender.replaceTrack(videoTrack).catch(() => {});
-      }
-    });
-    setScreenSharing(false);
     screenSharingRef.current = false;
-  }, []);
+    setScreenSharing(false);
+
+    if (localStreamRef.current) {
+      const camTrack = localStreamRef.current.getVideoTracks()[0];
+      if (camTrack) {
+        Object.values(pcMap.current).forEach((pc) => {
+          const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+          if (sender) {
+            sender.replaceTrack(camTrack).catch((err) => console.warn("Reverting track failed:", err));
+          }
+        });
+      }
+      sendSignal({
+        type: "media-state",
+        payload: { camOn: camOn, screenSharing: false },
+      });
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+    }
+  }, [camOn, sendSignal]);
 
   useEffect(() => {
     if (!code || !token) return;
@@ -423,6 +433,7 @@ export function useMeetingRoom(code, token, userName) {
     }
   }, [sendSignal]);
 
+
   const toggleScreenShare = useCallback(async () => {
     if (screenSharingRef.current) {
       stopScreenShare();
@@ -434,6 +445,8 @@ export function useMeetingRoom(code, token, userName) {
         }
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
         const screenTrack = screenStream.getVideoTracks()[0];
+        if (!screenTrack) return;
+
         screenTrackRef.current = screenTrack;
         screenSharingRef.current = true;
         setScreenSharing(true);
@@ -446,11 +459,25 @@ export function useMeetingRoom(code, token, userName) {
           const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
           if (sender) sender.replaceTrack(screenTrack).catch(() => {});
         });
+
+        sendSignal({
+          type: "media-state",
+          payload: { camOn: true, screenSharing: true },
+        });
+
+        if (localStreamRef.current) {
+          const audioTracks = localStreamRef.current.getAudioTracks();
+          setLocalStream(new MediaStream([screenTrack, ...audioTracks]));
+        }
       } catch (err) {
-        console.error("Screen sharing failed:", err);
+        if (err.name !== "NotAllowedError") {
+          console.error("Screen sharing failed:", err);
+        }
+        screenSharingRef.current = false;
+        setScreenSharing(false);
       }
     }
-  }, [stopScreenShare]);
+  }, [stopScreenShare, sendSignal]);
 
   const sendChat = useCallback((text) => {
     if (!text || !text.trim()) return;
@@ -556,6 +583,7 @@ export function useMeetingRoom(code, token, userName) {
     toggleMic,
     toggleCam,
     toggleScreenShare,
+    stopScreenShare,
     sendChat,
     sendReaction,
     toggleRaiseHand,

@@ -81,15 +81,15 @@ export default function ControlBar({
           </span>
         </button>
 
-        {/* Screen Share (Desktop/Tablet) */}
+        {/* Screen Share (Desktop & Mobile) */}
         <button
           onClick={onToggleScreenShare}
-          className={`hidden xs:flex flex-col items-center justify-center w-11 h-12 sm:w-14 sm:h-13 rounded-xl transition-all cursor-pointer ${
+          className={`flex flex-col items-center justify-center w-11 h-12 sm:w-14 sm:h-13 rounded-xl transition-all cursor-pointer ${
             screenSharing
               ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
               : "text-neutral-200 hover:bg-neutral-800/80 hover:text-white"
           }`}
-          title="Share Screen"
+          title={screenSharing ? "Stop Sharing Screen" : "Share Screen"}
         >
           <svg className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />

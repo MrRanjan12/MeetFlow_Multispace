@@ -9,6 +9,7 @@ export default function VideoTile({
   isSpeaking = false,
   isHandRaised = false,
   isPinned = false,
+  isScreenShare = false,
   onPin,
 }) {
   const videoRef = useRef(null);
@@ -31,6 +32,8 @@ export default function VideoTile({
       className={`relative w-full h-full min-h-[160px] aspect-video bg-neutral-900/95 rounded-2xl overflow-hidden shadow-xl border transition-all duration-300 flex items-center justify-center group select-none ${
         isSpeaking
           ? "border-emerald-500 ring-2 ring-emerald-500/40 shadow-emerald-950/40"
+          : isScreenShare
+          ? "border-emerald-500/80 ring-1 ring-emerald-500/40"
           : isPinned
           ? "border-indigo-500 ring-1 ring-indigo-500/30"
           : "border-neutral-800/80 hover:border-neutral-700"
@@ -42,12 +45,14 @@ export default function VideoTile({
         autoPlay
         playsInline
         muted={muted}
-        className={`w-full h-full object-cover transform ${muted ? "scale-x-[-1]" : ""} ${
+        className={`w-full h-full ${
+          isScreenShare ? "object-contain bg-neutral-950" : "object-cover"
+        } transform ${muted && !isScreenShare ? "scale-x-[-1]" : ""} ${
           videoOff ? "hidden" : "block"
         }`}
       />
 
-      {/* Avatar Fallback when Camera is Off */}
+      {/* Avatar Fallback when Camera is Off and Not Screen Sharing */}
       {videoOff && (
         <div className="flex flex-col items-center justify-center gap-3">
           <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white font-semibold text-xl sm:text-2xl flex items-center justify-center shadow-lg shadow-indigo-600/30 border border-white/10">
@@ -59,8 +64,17 @@ export default function VideoTile({
         </div>
       )}
 
-      {/* Top Right Badges: Hand Raise & Pin button */}
+      {/* Top Right Badges: Screen Share, Hand Raise & Pin button */}
       <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+        {isScreenShare && (
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-600/90 text-white text-[10px] sm:text-[11px] font-semibold shadow-md">
+            <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <span>Screen</span>
+          </div>
+        )}
+
         {isHandRaised && (
           <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/90 text-white text-[11px] font-bold shadow-lg animate-bounce">
             <span>✋</span>

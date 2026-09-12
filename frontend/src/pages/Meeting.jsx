@@ -314,20 +314,25 @@ export default function Meeting() {
       ? "grid-cols-2 lg:grid-cols-3 max-w-6xl"
       : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 max-w-7xl";
 
-  // Speaker View Calculations
+  // Speaker View Calculations: auto-spotlight screen sharer if not manually pinned
+  const remoteScreenSharer = remoteParticipants.find(
+    (p) => remoteMediaStates[p.user_id]?.screenSharing
+  );
+
   let speakerParticipant = null;
   if (pinnedId === "local") {
     speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
   } else if (pinnedId) {
     const found = remoteParticipants.find((p) => p.user_id === pinnedId);
     if (found) speakerParticipant = { isLocal: false, ...found };
-  }
-  if (!speakerParticipant) {
-    if (remoteParticipants.length > 0) {
-      speakerParticipant = { isLocal: false, ...remoteParticipants[0] };
-    } else {
-      speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
-    }
+  } else if (screenSharing) {
+    speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
+  } else if (remoteScreenSharer) {
+    speakerParticipant = { isLocal: false, ...remoteScreenSharer };
+  } else if (remoteParticipants.length > 0) {
+    speakerParticipant = { isLocal: false, ...remoteParticipants[0] };
+  } else {
+    speakerParticipant = { isLocal: true, user_id: "local", name: `${user?.name || "You"} (You)` };
   }
 
   const renderTileFor = (p, isPinnedTile = false) => {
@@ -339,7 +344,8 @@ export default function Meeting() {
           name={`${user?.name || "You"} (You)`}
           muted={true}
           isMicMuted={!micOn}
-          videoOff={!camOn}
+          videoOff={!camOn && !screenSharing}
+          isScreenShare={screenSharing}
           isHandRaised={handRaised}
           isPinned={pinnedId === "local"}
           onPin={() => setPinnedId(pinnedId === "local" ? null : "local")}
@@ -347,7 +353,8 @@ export default function Meeting() {
       );
     }
     const stream = remoteStreams[p.user_id];
-    const isCamOff = !stream || remoteMediaStates[p.user_id]?.camOn === false;
+    const isRemoteScreenShare = !!remoteMediaStates[p.user_id]?.screenSharing;
+    const isCamOff = (!stream || remoteMediaStates[p.user_id]?.camOn === false) && !isRemoteScreenShare;
     const isMicOff = remoteMediaStates[p.user_id]?.micOn === false;
     const hasHandRaised = !!raisedHands[p.user_id];
     return (
@@ -357,6 +364,7 @@ export default function Meeting() {
         name={p.name || "Participant"}
         videoOff={isCamOff}
         isMicMuted={isMicOff}
+        isScreenShare={isRemoteScreenShare}
         isHandRaised={hasHandRaised}
         isPinned={pinnedId === p.user_id}
         onPin={() => setPinnedId(pinnedId === p.user_id ? null : p.user_id)}
