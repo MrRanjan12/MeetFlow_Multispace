@@ -28,6 +28,16 @@ app.include_router(meetings_router.router)
 app.include_router(ws_router.router)
 
 
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "service": "Team Meeting App API",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

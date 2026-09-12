@@ -37,7 +37,8 @@ export const getApiUrl = () => {
     return envUrl.trim().replace(/\/+$/, "");
   }
 
-  return "http://localhost:8000";
+  // 6. Real Render production backend fallback
+  return "https://meeting-app-backend-4fu8.onrender.com";
 };
 
 export const API_URL = getApiUrl();

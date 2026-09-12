@@ -16,7 +16,7 @@ services:
           name: meeting-app-db
           property: connectionString
       - key: FRONTEND_ORIGINS
-        value: https://meeting-app-frontend.onrender.com,http://localhost:5173
+        value: https://meeting-app-frontend-reqh.onrender.com,http://localhost:5173
 
   # Frontend React Vite App (Static Site)
   - type: web
@@ -33,7 +33,7 @@ services:
       - key: NODE_VERSION
         value: 20
       - key: VITE_API_URL
-        value: https://meeting-app-backend.onrender.com
+        value: https://meeting-app-backend-4fu8.onrender.com
 
 databases:
   # Managed PostgreSQL for persistent meetings & users
